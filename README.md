@@ -41,18 +41,17 @@ GitHub URL support is planned for a future release.
 
 ```console
 explain-repo [OPTIONS] PATH
-
-Options:
-  --top INTEGER RANGE             Number of files to show. [default: 10]
-  --json                          Output structured JSON.
-  --rank-method [indegree|pagerank]
-								  Ranking algorithm. [default: pagerank]
-	--llm                           Add structure-only LLM descriptions.
-	--llm-provider [ollama|anthropic]
-																	Provider used with --llm. [default: ollama]
-  --version                       Show the version and exit.
-  --help                          Show help and exit.
 ```
+
+| Option | Description |
+| --- | --- |
+| `--top N` | Number of files to show (default: `10`). |
+| `--json` | Output structured JSON. |
+| `--rank-method METHOD` | Use `indegree` or `pagerank` (default: `pagerank`). |
+| `--llm` | Add structure-only LLM descriptions. |
+| `--llm-provider PROVIDER` | Use `ollama` or `anthropic` (default: `ollama`). |
+| `--version` | Show the version and exit. |
+| `--help` | Show help and exit. |
 
 Examples:
 
@@ -95,22 +94,83 @@ class names, and method names. Full source content is never sent.
 
 ### Ollama (free and local)
 
-Ollama is the default provider. Install it from
-[ollama.com](https://ollama.com), then download the default model:
+Ollama is the default provider in `explain-repo` `0.2.0` and newer. It runs on
+your computer, requires no API key, and has no per-request charge.
+
+1. Install Ollama. On Linux:
+
+	```console
+	curl -fsSL https://ollama.com/install.sh | sh
+	```
+
+	For macOS or Windows, use the installer from
+	[ollama.com/download](https://ollama.com/download).
+
+2. Confirm the installation:
+
+	```console
+	ollama --version
+	```
+
+3. Download the default model (approximately 2 GB):
+
+	```console
+	ollama pull qwen2.5-coder:3b
+	ollama list
+	```
+
+4. Start the local server if the installer did not start it automatically:
+
+	```console
+	ollama serve
+	```
+
+	Keep that terminal open. A message that port `11434` is already in use
+	usually means Ollama is already running.
+
+5. From another terminal, test the current source checkout:
+
+	```console
+	cd /home/alintm4/Desktop/read-repo
+	uvx --from . explain-repo /path/to/repository --top 3 --llm
+	```
+
+6. After `0.2.0` is published to PyPI, run it from anywhere:
+
+	```console
+	uvx --refresh --from explain-repo==0.2.0 explain-repo /path/to/repository --top 3 --llm
+	```
+
+Each top-ranked file causes one local model request. Use a small `--top` value
+for faster reports on machines with limited memory.
+
+To select another installed model, set `EXPLAIN_REPO_OLLAMA_MODEL`:
+
+```console
+EXPLAIN_REPO_OLLAMA_MODEL=qwen2.5-coder:7b uvx explain-repo . --llm
+```
+
+To connect to Ollama on another machine, set the server URL:
+
+```console
+EXPLAIN_REPO_OLLAMA_URL=http://hostname:11434 uvx explain-repo . --llm
+```
+
+If the command reports that it cannot connect:
+
+```console
+ollama serve
+curl http://localhost:11434/api/tags
+```
+
+If it reports that the model is missing, run:
 
 ```console
 ollama pull qwen2.5-coder:3b
 ```
 
-Ensure Ollama is running, then analyze a repository:
-
-```console
-uvx explain-repo . --llm
-```
-
 No API key or paid account is required, and extracted structure stays on your
-computer. Select another installed model with `EXPLAIN_REPO_OLLAMA_MODEL`, or a
-different server with `EXPLAIN_REPO_OLLAMA_URL`.
+computer.
 
 ### Anthropic
 
