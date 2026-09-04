@@ -1,0 +1,60 @@
+import json
+from pathlib import Path
+
+from click.testing import CliRunner
+
+from explain_repo.cli import main
+
+
+def _make_repo(root: Path) -> None:
+    (root / "core.py").write_text("class Engine:\n    def run(self): pass\n", encoding="utf-8")
+    (root / "app.py").write_text("from core import Engine\ndef main(): pass\n", encoding="utf-8")
+
+
+def test_cli_renders_expected_sections(tmp_path: Path) -> None:
+    _make_repo(tmp_path)
+
+    result = CliRunner().invoke(main, [str(tmp_path), "--top", "1"])
+
+    assert result.exit_code == 0
+    assert "Suggested Reading Order" in result.output
+    assert "Core Abstractions" in result.output
+    assert "core.py" in result.output
+    assert "Engine" in result.output
+
+
+def test_cli_json_is_structured_and_honors_rank_method(tmp_path: Path) -> None:
+    _make_repo(tmp_path)
+
+    result = CliRunner().invoke(
+        main, [str(tmp_path), "--json", "--rank-method", "indegree"]
+    )
+
+    assert result.exit_code == 0
+    report = json.loads(result.output)
+    assert report["rank_method"] == "indegree"
+    assert report["reading_order"][0]["path"] == "core.py"
+    assert report["reading_order"][0]["classes"] == [
+        {"name": "Engine", "methods": ["run"]}
+    ]
+
+
+def test_cli_warns_and_continues_for_syntax_errors(tmp_path: Path) -> None:
+    _make_repo(tmp_path)
+    (tmp_path / "broken.py").write_text("def nope(:\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, [str(tmp_path), "--json"])
+
+    assert result.exit_code == 0
+    assert "Warning: skipped broken.py" in result.stderr
+    assert len(json.loads(result.stdout)["syntax_errors"]) == 1
+
+
+def test_cli_rejects_non_directory(tmp_path: Path) -> None:
+    source = tmp_path / "file.py"
+    source.write_text("pass\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, [str(source)])
+
+    assert result.exit_code != 0
+    assert "Directory" in result.output
