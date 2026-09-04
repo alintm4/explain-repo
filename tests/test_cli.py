@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from click.testing import CliRunner
 
@@ -15,7 +16,7 @@ def test_cli_reports_package_version() -> None:
     result = CliRunner().invoke(main, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output == "explain-repo, version 0.1.0\n"
+    assert result.output == "explain-repo, version 0.2.0\n"
 
 
 def test_cli_renders_expected_sections(tmp_path: Path) -> None:
@@ -44,6 +45,32 @@ def test_cli_json_is_structured_and_honors_rank_method(tmp_path: Path) -> None:
     assert report["reading_order"][0]["classes"] == [
         {"name": "Engine", "methods": ["run"]}
     ]
+
+
+def test_cli_uses_selected_llm_provider(tmp_path: Path) -> None:
+    _make_repo(tmp_path)
+
+    with patch(
+        "explain_repo.llm.describe_file", return_value="Defines the core engine."
+    ) as describe_file:
+        result = CliRunner().invoke(
+            main,
+            [
+                str(tmp_path),
+                "--json",
+                "--top",
+                "1",
+                "--llm",
+                "--llm-provider",
+                "ollama",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert json.loads(result.output)["reading_order"][0]["description"] == (
+        "Defines the core engine."
+    )
+    assert describe_file.call_args.args[1] == "ollama"
 
 
 def test_cli_warns_and_continues_for_syntax_errors(tmp_path: Path) -> None:

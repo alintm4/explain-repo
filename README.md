@@ -27,9 +27,9 @@ Python 3.11 or newer is required.
 
 ## Usage
 
-Version `0.1.0` accepts a path to a local directory. It does not download or
-analyze a GitHub URL directly. To analyze a repository that is not already on
-your computer, clone it first:
+The CLI accepts a path to a local directory. It does not download or analyze a
+GitHub URL directly. To analyze a repository that is not already on your
+computer, clone it first:
 
 ```console
 git clone https://github.com/OWNER/REPOSITORY.git
@@ -47,7 +47,9 @@ Options:
   --json                          Output structured JSON.
   --rank-method [indegree|pagerank]
 								  Ranking algorithm. [default: pagerank]
-  --llm                           Add structure-only Anthropic descriptions.
+	--llm                           Add structure-only LLM descriptions.
+	--llm-provider [ollama|anthropic]
+																	Provider used with --llm. [default: ollama]
   --version                       Show the version and exit.
   --help                          Show help and exit.
 ```
@@ -58,7 +60,7 @@ Examples:
 uvx explain-repo . --top 5
 uvx explain-repo . --rank-method indegree
 uvx explain-repo . --json > report.json
-uvx --from 'explain-repo[llm]' explain-repo . --llm
+uvx explain-repo . --llm
 ```
 
 Sample terminal output:
@@ -86,19 +88,42 @@ including `.git`, `.venv`, `venv`, `node_modules`, `__pycache__`, `build`, and
 `dist`, are excluded from scanning. Circular imports are represented as ordinary
 cycles in the graph and require no recursive traversal.
 
-## Optional Anthropic descriptions
+## Optional LLM descriptions
 
-Install the `llm` extra and provide Anthropic credentials in the environment:
+LLM descriptions use only the file path and extracted imports, function names,
+class names, and method names. Full source content is never sent.
+
+### Ollama (free and local)
+
+Ollama is the default provider. Install it from
+[ollama.com](https://ollama.com), then download the default model:
+
+```console
+ollama pull qwen2.5-coder:3b
+```
+
+Ensure Ollama is running, then analyze a repository:
+
+```console
+uvx explain-repo . --llm
+```
+
+No API key or paid account is required, and extracted structure stays on your
+computer. Select another installed model with `EXPLAIN_REPO_OLLAMA_MODEL`, or a
+different server with `EXPLAIN_REPO_OLLAMA_URL`.
+
+### Anthropic
+
+Anthropic remains available as an optional hosted provider. Install the `llm`
+extra and provide credentials in the environment:
 
 ```console
 export ANTHROPIC_API_KEY="..."
 uv sync --extra llm
-uv run explain-repo . --llm
+uv run explain-repo . --llm --llm-provider anthropic
 ```
 
-The model receives only the file path and extracted imports, function names,
-class names, and method names. Full source content is never sent. Override the
-default model with `EXPLAIN_REPO_ANTHROPIC_MODEL`.
+Override the default Anthropic model with `EXPLAIN_REPO_ANTHROPIC_MODEL`.
 
 ## Publishing to PyPI
 

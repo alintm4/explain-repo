@@ -24,7 +24,11 @@ def _import_label(info: FileInfo) -> list[str]:
 
 
 def _build_report(
-    root: Path, top: int, rank_method: str, include_llm: bool
+    root: Path,
+    top: int,
+    rank_method: str,
+    include_llm: bool,
+    llm_provider: str = "ollama",
 ) -> dict[str, Any]:
     files = parse_repository(root)
     graph = build_dependency_graph(files)
@@ -50,7 +54,7 @@ def _build_report(
         if include_llm:
             from .llm import describe_file
 
-            entry["description"] = describe_file(info)
+            entry["description"] = describe_file(info, llm_provider)
         entries.append(entry)
     return {
         "repository": str(root),
@@ -115,12 +119,26 @@ def _render_text(report: dict[str, Any], console: Console) -> None:
     default="pagerank",
     show_default=True,
 )
-@click.option("--llm", is_flag=True, help="Add Anthropic descriptions from extracted structure.")
-def main(path: Path, top: int, as_json: bool, rank_method: str, llm: bool) -> None:
+@click.option("--llm", is_flag=True, help="Add LLM descriptions from extracted structure.")
+@click.option(
+    "--llm-provider",
+    type=click.Choice(["ollama", "anthropic"]),
+    default="ollama",
+    show_default=True,
+    help="Provider used with --llm.",
+)
+def main(
+    path: Path,
+    top: int,
+    as_json: bool,
+    rank_method: str,
+    llm: bool,
+    llm_provider: str,
+) -> None:
     """Analyze the Python repository at PATH and suggest a reading order."""
     root = path.resolve()
     try:
-        report = _build_report(root, top, rank_method, llm)
+        report = _build_report(root, top, rank_method, llm, llm_provider)
     except RuntimeError as error:
         raise click.ClickException(str(error)) from error
     except Exception as error:
