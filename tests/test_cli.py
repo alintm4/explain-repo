@@ -11,6 +11,13 @@ def _make_repo(root: Path) -> None:
     (root / "app.py").write_text("from core import Engine\ndef main(): pass\n", encoding="utf-8")
 
 
+def test_cli_reports_package_version() -> None:
+    result = CliRunner().invoke(main, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.output == "explain-repo, version 0.1.0\n"
+
+
 def test_cli_renders_expected_sections(tmp_path: Path) -> None:
     _make_repo(tmp_path)
 

@@ -10,6 +10,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from . import __version__
 from .graph import build_dependency_graph, rank_files
 from .parser import FileInfo, parse_repository
 
@@ -101,6 +102,7 @@ def _render_text(report: dict[str, Any], console: Console) -> None:
 
 
 @click.command()
+@click.version_option(version=__version__, prog_name="explain-repo")
 @click.argument(
     "path",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),

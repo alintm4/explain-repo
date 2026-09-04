@@ -8,13 +8,26 @@ version = "0.1.0"
 description = "Static-analysis guided onboarding reports for Python repositories"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
-authors = [{ name = "explain-repo contributors" }]
+license = { file = "LICENSE" }
+authors = [{ name = "alintm4", email = "alintimilsana@gmail.com" }]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
 dependencies = [
     "click>=8.1",
     "networkx>=3.2",
     "rich>=13.7",
 ]
+
+[project.urls]
+Homepage = "https://github.com/alintm4/explain-repo"
+Repository = "https://github.com/alintm4/explain-repo.git"
+Issues = "https://github.com/alintm4/explain-repo/issues"
 
 [project.optional-dependencies]
 llm = ["anthropic>=0.40"]
