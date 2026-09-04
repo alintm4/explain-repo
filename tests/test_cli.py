@@ -1,5 +1,7 @@
 import json
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -73,6 +75,32 @@ def test_cli_uses_selected_llm_provider(tmp_path: Path) -> None:
     assert describe_file.call_args.args[1] == "ollama"
 
 
+def test_cli_analyzes_git_url_at_ref(tmp_path: Path) -> None:
+    _make_repo(tmp_path)
+
+    @contextmanager
+    def cloned_source(source: str, ref: str | None) -> Iterator[Path]:
+        assert source == "https://github.com/example/project.git"
+        assert ref == "v1.2.3"
+        yield tmp_path
+
+    with patch("explain_repo.cli.repository_source", side_effect=cloned_source):
+        result = CliRunner().invoke(
+            main,
+            [
+                "https://github.com/example/project.git",
+                "--ref",
+                "v1.2.3",
+                "--json",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert json.loads(result.output)["repository"] == (
+        "https://github.com/example/project.git"
+    )
+
+
 def test_cli_warns_and_continues_for_syntax_errors(tmp_path: Path) -> None:
     _make_repo(tmp_path)
     (tmp_path / "broken.py").write_text("def nope(:\n", encoding="utf-8")
@@ -91,4 +119,4 @@ def test_cli_rejects_non_directory(tmp_path: Path) -> None:
     result = CliRunner().invoke(main, [str(source)])
 
     assert result.exit_code != 0
-    assert "Directory" in result.output
+    assert "not a directory" in result.output

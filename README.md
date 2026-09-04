@@ -1,9 +1,9 @@
 # explain-repo
 
-`explain-repo` statically analyzes a local Python repository and produces a
-guided onboarding report. It parses Python with the standard-library `ast`
-module, resolves internal imports, builds a NetworkX dependency graph, and ranks
-files without reading meaning into source text.
+`explain-repo` statically analyzes a local or remote Python repository and
+produces a guided onboarding report. It parses Python with the standard-library
+`ast` module, resolves internal imports, builds a NetworkX dependency graph, and
+ranks files without reading meaning into source text.
 
 ## Installation
 
@@ -11,6 +11,7 @@ Run the published package without installing it globally:
 
 ```console
 uvx explain-repo ./path/to/repository
+uvx explain-repo https://github.com/OWNER/REPOSITORY.git
 ```
 
 For local development:
@@ -27,26 +28,38 @@ Python 3.11 or newer is required.
 
 ## Usage
 
-The CLI accepts a path to a local directory. It does not download or analyze a
-GitHub URL directly. To analyze a repository that is not already on your
-computer, clone it first:
+The CLI accepts either a local directory or a Git repository URL. Remote
+repositories are cloned into a temporary directory, analyzed, and automatically
+deleted afterward. The original repository is not modified.
+
+Analyze a public GitHub repository without cloning it manually:
 
 ```console
-git clone https://github.com/OWNER/REPOSITORY.git
-uvx explain-repo REPOSITORY
+uvx explain-repo https://github.com/OWNER/REPOSITORY.git
 ```
 
-The cloned directory can be deleted after the report is generated. Direct
-GitHub URL support is planned for a future release.
+Use `--ref` to analyze a branch, tag, or commit:
 
 ```console
-explain-repo [OPTIONS] PATH
+uvx explain-repo https://github.com/OWNER/REPOSITORY.git --ref develop
+uvx explain-repo https://github.com/OWNER/REPOSITORY.git --ref v1.2.0
+uvx explain-repo https://github.com/OWNER/REPOSITORY.git --ref a1b2c3d
+```
+
+HTTPS and SSH Git URLs are supported. Private repositories work when your local
+Git installation already has access through SSH keys or a credential helper.
+The `--ref` option applies only to URL sources; local directories are analyzed
+as they currently exist on disk.
+
+```console
+explain-repo [OPTIONS] SOURCE
 ```
 
 | Option | Description |
 | --- | --- |
 | `--top N` | Number of files to show (default: `10`). |
 | `--json` | Output structured JSON. |
+| `--ref REF` | Branch, tag, or commit to analyze for a Git URL. |
 | `--rank-method METHOD` | Use `indegree` or `pagerank` (default: `pagerank`). |
 | `--llm` | Add structure-only LLM descriptions. |
 | `--llm-provider PROVIDER` | Use `ollama` or `anthropic` (default: `ollama`). |
@@ -57,6 +70,7 @@ Examples:
 
 ```console
 uvx explain-repo . --top 5
+uvx explain-repo https://github.com/OWNER/REPOSITORY.git --top 5
 uvx explain-repo . --rank-method indegree
 uvx explain-repo . --json > report.json
 uvx explain-repo . --llm

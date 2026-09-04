@@ -13,6 +13,7 @@ from rich.table import Table
 from . import __version__
 from .graph import build_dependency_graph, rank_files
 from .parser import FileInfo, parse_repository
+from .repository import repository_source
 
 
 def _import_label(info: FileInfo) -> list[str]:
@@ -29,6 +30,7 @@ def _build_report(
     rank_method: str,
     include_llm: bool,
     llm_provider: str = "ollama",
+    repository_name: str | None = None,
 ) -> dict[str, Any]:
     files = parse_repository(root)
     graph = build_dependency_graph(files)
@@ -57,7 +59,7 @@ def _build_report(
             entry["description"] = describe_file(info, llm_provider)
         entries.append(entry)
     return {
-        "repository": str(root),
+        "repository": repository_name or str(root),
         "rank_method": rank_method,
         "python_file_count": len(files),
         "syntax_errors": [
@@ -107,12 +109,10 @@ def _render_text(report: dict[str, Any], console: Console) -> None:
 
 @click.command()
 @click.version_option(version=__version__, prog_name="explain-repo")
-@click.argument(
-    "path",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
-)
+@click.argument("source")
 @click.option("--top", type=click.IntRange(min=1), default=10, show_default=True)
 @click.option("--json", "as_json", is_flag=True, help="Output structured JSON.")
+@click.option("--ref", help="Branch, tag, or commit to analyze for a Git URL.")
 @click.option(
     "--rank-method",
     type=click.Choice(["indegree", "pagerank"]),
@@ -128,17 +128,25 @@ def _render_text(report: dict[str, Any], console: Console) -> None:
     help="Provider used with --llm.",
 )
 def main(
-    path: Path,
+    source: str,
     top: int,
     as_json: bool,
+    ref: str | None,
     rank_method: str,
     llm: bool,
     llm_provider: str,
 ) -> None:
-    """Analyze the Python repository at PATH and suggest a reading order."""
-    root = path.resolve()
+    """Analyze a local directory or Git repository URL in SOURCE."""
     try:
-        report = _build_report(root, top, rank_method, llm, llm_provider)
+        with repository_source(source, ref) as root:
+            report = _build_report(
+                root,
+                top,
+                rank_method,
+                llm,
+                llm_provider,
+                repository_name=source,
+            )
     except RuntimeError as error:
         raise click.ClickException(str(error)) from error
     except Exception as error:
