@@ -7,7 +7,7 @@ files without reading meaning into source text.
 
 ## Installation
 
-After the package is published to PyPI, run it without installing it globally:
+Run the published package without installing it globally:
 
 ```console
 uvx explain-repo ./path/to/repository
@@ -27,6 +27,18 @@ Python 3.11 or newer is required.
 
 ## Usage
 
+Version `0.1.0` accepts a path to a local directory. It does not download or
+analyze a GitHub URL directly. To analyze a repository that is not already on
+your computer, clone it first:
+
+```console
+git clone https://github.com/OWNER/REPOSITORY.git
+uvx explain-repo REPOSITORY
+```
+
+The cloned directory can be deleted after the report is generated. Direct
+GitHub URL support is planned for a future release.
+
 ```console
 explain-repo [OPTIONS] PATH
 
@@ -34,8 +46,9 @@ Options:
   --top INTEGER RANGE             Number of files to show. [default: 10]
   --json                          Output structured JSON.
   --rank-method [indegree|pagerank]
-											 Ranking algorithm. [default: pagerank]
+								  Ranking algorithm. [default: pagerank]
   --llm                           Add structure-only Anthropic descriptions.
+  --version                       Show the version and exit.
   --help                          Show help and exit.
 ```
 
