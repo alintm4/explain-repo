@@ -1,8 +1,9 @@
 # explain-repo
 
-`explain-repo` statically analyzes a local or remote Python repository and
-produces a guided onboarding report. It parses Python with the standard-library
-`ast` module, resolves internal imports, builds a NetworkX dependency graph, and
+`explain-repo` statically analyzes a local or remote Python, JavaScript, or
+TypeScript repository and produces a guided onboarding report. It parses Python
+with the standard-library `ast` module and JavaScript/TypeScript with
+tree-sitter, resolves internal imports, builds a NetworkX dependency graph, and
 separates likely entry points from heavily imported core dependencies without
 reading meaning into source text.
 
@@ -110,10 +111,17 @@ shim from looking like an application entry point. Files that match neither
 signal are leaves. Files without functions or classes remain available in JSON
 and the ranked sections but are omitted from `Core Abstractions`.
 
-Syntax-invalid files are skipped with a warning. Common generated directories,
+Syntax-invalid Python files are skipped with a warning. Tree-sitter can recover
+useful structure from some JavaScript and TypeScript syntax errors; those files
+remain in the report with a recovery warning. Common generated directories,
 including `.git`, `.venv`, `venv`, `node_modules`, `__pycache__`, `build`, and
 `dist`, are excluded from scanning. Circular imports are represented as ordinary
 cycles in the graph and require no recursive traversal.
+
+Supported source extensions are `.py`, `.js`, `.jsx`, `.ts`, and `.tsx`.
+JavaScript and TypeScript relative imports use extension guessing and directory
+`index` resolution. Bare package imports are extracted for reporting but are
+not resolved into `node_modules`.
 
 ## Optional LLM descriptions
 
@@ -166,7 +174,7 @@ your computer, requires no API key, and has no per-request charge.
 6. Run the published release from anywhere:
 
 	```console
-	uvx --refresh --from explain-repo==0.3.0 explain-repo /path/to/repository --top 3 --llm
+	uvx --refresh --from explain-repo==0.4.0 explain-repo /path/to/repository --top 3 --llm
 	```
 
 Each top-ranked file causes one local model request. Use a small `--top` value

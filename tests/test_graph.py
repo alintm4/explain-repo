@@ -34,10 +34,44 @@ def test_graph_resolves_internal_imports_and_ranks_shared_module(tmp_path: Path)
 
 def test_repository_scan_ignores_generated_directories(tmp_path: Path) -> None:
     _write(tmp_path, "app.py", "def main(): pass\n")
+    _write(tmp_path, "web.tsx", "export function App() { return null; }\n")
     _write(tmp_path, ".venv/ignored.py", "def hidden(): pass\n")
     _write(tmp_path, "node_modules/ignored.py", "def hidden(): pass\n")
+    _write(tmp_path, "node_modules/ignored.js", "export function hidden() {}\n")
+    _write(tmp_path, "dist/ignored.ts", "export function hidden() {}\n")
+    _write(tmp_path, "build/ignored.jsx", "export function Hidden() {}\n")
 
-    assert set(parse_repository(tmp_path)) == {Path("app.py")}
+    assert set(parse_repository(tmp_path)) == {Path("app.py"), Path("web.tsx")}
+
+
+def test_javascript_imports_resolve_extensions_and_directory_indexes(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, "src/utils/helpers.ts", "export function help() {}\n")
+    _write(tmp_path, "src/config/index.js", "module.exports = {};\n")
+    _write(
+        tmp_path,
+        "src/main.ts",
+        """import { help } from './utils/helpers';
+const config = require('./config');
+import React from 'react';
+export function main() {}
+""",
+    )
+
+    files = parse_repository(tmp_path)
+    graph = build_dependency_graph(files)
+
+    main = Path("src/main.ts")
+    assert [imported.module for imported in files[main].imports] == [
+        "src.utils.helpers",
+        "src.config.index",
+        "react",
+    ]
+    assert set(graph.successors(main)) == {
+        Path("src/utils/helpers.ts"),
+        Path("src/config/index.js"),
+    }
 
 
 def test_classify_node_distinguishes_entry_core_and_reexport_shim(

@@ -21,11 +21,30 @@ def _make_repo(root: Path) -> None:
     )
 
 
+def _make_javascript_repo(root: Path) -> None:
+    (root / "core.ts").write_text(
+        "export class Engine { run(): void {} }\n", encoding="utf-8"
+    )
+    (root / "helper.js").write_text(
+        "export function configure() {}\n", encoding="utf-8"
+    )
+    (root / "app.ts").write_text(
+        "import { Engine } from './core';\n"
+        "const helper = require('./helper');\n"
+        "export function main() {}\n",
+        encoding="utf-8",
+    )
+    (root / "worker.ts").write_text(
+        "import { Engine } from './core';\nexport function work() {}\n",
+        encoding="utf-8",
+    )
+
+
 def test_cli_reports_package_version() -> None:
     result = CliRunner().invoke(main, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output == "explain-repo, version 0.3.0\n"
+    assert result.output == "explain-repo, version 0.4.0\n"
 
 
 def test_cli_renders_expected_sections(tmp_path: Path) -> None:
@@ -39,6 +58,17 @@ def test_cli_renders_expected_sections(tmp_path: Path) -> None:
     assert "Core Abstractions" in result.output
     assert "app.py" in result.output
     assert "core.py" in result.output
+    assert "Engine" in result.output
+
+
+def test_cli_renders_javascript_typescript_repository(tmp_path: Path) -> None:
+    _make_javascript_repo(tmp_path)
+
+    result = CliRunner().invoke(main, [str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "app.ts" in result.output
+    assert "core.ts" in result.output
     assert "Engine" in result.output
 
 
@@ -138,7 +168,22 @@ def test_cli_warns_and_continues_for_syntax_errors(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "Warning: skipped broken.py" in result.stderr
-    assert len(json.loads(result.stdout)["syntax_errors"]) == 1
+    syntax_error = json.loads(result.stdout)["syntax_errors"][0]
+    assert syntax_error["recovered"] is False
+
+
+def test_cli_labels_recovered_typescript_syntax_errors(tmp_path: Path) -> None:
+    (tmp_path / "app.tsx").write_text(
+        "export function App() { return <span>A & B</span>; }\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(main, [str(tmp_path), "--json"])
+
+    assert result.exit_code == 0
+    assert "parsed with recoverable syntax errors app.tsx" in result.stderr
+    syntax_error = json.loads(result.stdout)["syntax_errors"][0]
+    assert syntax_error["recovered"] is True
 
 
 def test_cli_rejects_non_directory(tmp_path: Path) -> None:

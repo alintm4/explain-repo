@@ -76,7 +76,11 @@ def _build_report(
         "rank_method": rank_method,
         "python_file_count": len(files),
         "syntax_errors": [
-            {"path": path.as_posix(), "error": info.syntax_error}
+            {
+                "path": path.as_posix(),
+                "error": info.syntax_error,
+                "recovered": info.syntax_recovered,
+            }
             for path, info in files.items()
             if info.syntax_error
         ],
@@ -184,8 +188,13 @@ def main(
         raise
 
     for syntax_error in report["syntax_errors"]:
+        action = (
+            "parsed with recoverable syntax errors"
+            if syntax_error["recovered"]
+            else "skipped"
+        )
         click.echo(
-            f"Warning: skipped {syntax_error['path']}: {syntax_error['error']}",
+            f"Warning: {action} {syntax_error['path']}: {syntax_error['error']}",
             err=True,
         )
     if as_json:

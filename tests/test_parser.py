@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from explain_repo.parser import parse_file
+import pytest
+
+from explain_repo.parser import parse_file, parse_repository
 
 
 def test_parse_file_extracts_module_structure(tmp_path: Path) -> None:
@@ -44,3 +46,48 @@ def test_parse_file_returns_syntax_error(tmp_path: Path) -> None:
 
     assert info.syntax_error is not None
     assert info.functions == []
+
+
+def test_parse_typescript_extracts_local_imports_and_exported_definitions(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "helper.ts").write_text(
+        "export function helper(): void {}\n", encoding="utf-8"
+    )
+    source = tmp_path / "main.ts"
+    source.write_text(
+        """import { helper } from './helper';
+import React from 'react';
+export function run(): void {}
+export const load = (): void => {};
+export class App {
+    start(): void {}
+}
+""",
+        encoding="utf-8",
+    )
+
+    info = parse_repository(tmp_path)[Path("main.ts")]
+
+    assert info.syntax_error is None
+    assert [imported.module for imported in info.imports] == ["helper", "react"]
+    assert info.functions == ["run", "load"]
+    assert info.classes == ["App"]
+    assert info.class_methods == {"App": ["start"]}
+
+
+@pytest.mark.parametrize("extension", [".js", ".jsx", ".ts", ".tsx"])
+def test_parse_file_dispatches_javascript_typescript_extensions(
+    tmp_path: Path, extension: str
+) -> None:
+    source = tmp_path / f"component{extension}"
+    source.write_text(
+        "export function render() {}\nexport class Component {}\n",
+        encoding="utf-8",
+    )
+
+    info = parse_file(source)
+
+    assert info.syntax_error is None
+    assert info.functions == ["render"]
+    assert info.classes == ["Component"]

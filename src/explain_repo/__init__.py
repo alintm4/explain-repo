@@ -1,3 +1,3 @@
-"""Static-analysis tools for explaining Python repositories."""
+"""Static-analysis tools for explaining source repositories."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
