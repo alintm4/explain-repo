@@ -3,7 +3,8 @@
 `explain-repo` statically analyzes a local or remote Python repository and
 produces a guided onboarding report. It parses Python with the standard-library
 `ast` module, resolves internal imports, builds a NetworkX dependency graph, and
-ranks files without reading meaning into source text.
+separates likely entry points from heavily imported core dependencies without
+reading meaning into source text.
 
 ## Installation
 
@@ -79,13 +80,19 @@ uvx explain-repo . --llm
 Sample terminal output:
 
 ```text
-Suggested Reading Order
-┏━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
-┃ # ┃ File               ┃ Why central               ┃ Dependencies     ┃
-┡━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
-│ 1 │ src/app/core.py    │ imported by 12 other files │ src/app/types.py │
-│ 2 │ src/app/service.py │ imported by 4 other files  │ src/app/core.py  │
-└───┴────────────────────┴───────────────────────────┴──────────────────┘
+Entry Points
+┏━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ # ┃ File           ┃ Imported by ┃ Imports ┃ Dependencies           ┃
+┡━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ 1 │ src/app/main.py│           0 │       3 │ src/app/service.py, ...│
+└───┴────────────────┴─────────────┴─────────┴────────────────────────┘
+
+Core Dependencies
+┏━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━┓
+┃ # ┃ File               ┃ Imported by ┃ Imports ┃ Dependencies ┃
+┡━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━┩
+│ 1 │ src/app/core.py    │          12 │       1 │ src/app/types.py │
+└───┴────────────────────┴─────────────┴─────────┴──────────────────┘
 
 Core Abstractions
 ┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
@@ -95,6 +102,13 @@ Core Abstractions
 │ src/app/service.py │ AnalysisService (run)│ analyze          │
 └────────────────────┴──────────────────────┴──────────────────┘
 ```
+
+A file is classified only when its dominant degree is at least two and at
+least twice the opposite degree after adding one to both sides. The smoothing
+avoids division by zero, while the minimum degree prevents a one-import package
+shim from looking like an application entry point. Files that match neither
+signal are leaves. Files without functions or classes remain available in JSON
+and the ranked sections but are omitted from `Core Abstractions`.
 
 Syntax-invalid files are skipped with a warning. Common generated directories,
 including `.git`, `.venv`, `venv`, `node_modules`, `__pycache__`, `build`, and
@@ -149,10 +163,10 @@ your computer, requires no API key, and has no per-request charge.
 	uvx --from . explain-repo /path/to/repository --top 3 --llm
 	```
 
-6. After `0.2.0` is published to PyPI, run it from anywhere:
+6. Run the published release from anywhere:
 
 	```console
-	uvx --refresh --from explain-repo==0.2.0 explain-repo /path/to/repository --top 3 --llm
+	uvx --refresh --from explain-repo==0.3.0 explain-repo /path/to/repository --top 3 --llm
 	```
 
 Each top-ranked file causes one local model request. Use a small `--top` value

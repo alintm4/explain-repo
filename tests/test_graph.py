@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from explain_repo.graph import build_dependency_graph, rank_files
+from explain_repo.graph import build_dependency_graph, classify_node, rank_files
 from explain_repo.parser import parse_repository
 
 
@@ -38,3 +38,24 @@ def test_repository_scan_ignores_generated_directories(tmp_path: Path) -> None:
     _write(tmp_path, "node_modules/ignored.py", "def hidden(): pass\n")
 
     assert set(parse_repository(tmp_path)) == {Path("app.py")}
+
+
+def test_classify_node_distinguishes_entry_core_and_reexport_shim(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, "pkg/__init__.py", "from .core import Engine\n")
+    _write(tmp_path, "pkg/core.py", "class Engine: pass\n")
+    _write(tmp_path, "pkg/service.py", "def serve(): pass\n")
+    _write(
+        tmp_path,
+        "app.py",
+        "from pkg.core import Engine\nfrom pkg.service import serve\ndef main(): pass\n",
+    )
+    _write(tmp_path, "worker.py", "from pkg.core import Engine\ndef work(): pass\n")
+
+    graph = build_dependency_graph(parse_repository(tmp_path))
+
+    assert classify_node(graph, Path("app.py")) == "entry_point"
+    assert classify_node(graph, Path("pkg/core.py")) == "core_dependency"
+    assert classify_node(graph, Path("pkg/service.py")) == "leaf"
+    assert classify_node(graph, Path("pkg/__init__.py")) == "leaf"

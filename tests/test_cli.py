@@ -11,14 +11,21 @@ from explain_repo.cli import main
 
 def _make_repo(root: Path) -> None:
     (root / "core.py").write_text("class Engine:\n    def run(self): pass\n", encoding="utf-8")
-    (root / "app.py").write_text("from core import Engine\ndef main(): pass\n", encoding="utf-8")
+    (root / "helper.py").write_text("def configure(): pass\n", encoding="utf-8")
+    (root / "app.py").write_text(
+        "from core import Engine\nfrom helper import configure\ndef main(): pass\n",
+        encoding="utf-8",
+    )
+    (root / "worker.py").write_text(
+        "from core import Engine\ndef work(): pass\n", encoding="utf-8"
+    )
 
 
 def test_cli_reports_package_version() -> None:
     result = CliRunner().invoke(main, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output == "explain-repo, version 0.2.0\n"
+    assert result.output == "explain-repo, version 0.3.0\n"
 
 
 def test_cli_renders_expected_sections(tmp_path: Path) -> None:
@@ -27,8 +34,10 @@ def test_cli_renders_expected_sections(tmp_path: Path) -> None:
     result = CliRunner().invoke(main, [str(tmp_path), "--top", "1"])
 
     assert result.exit_code == 0
-    assert "Suggested Reading Order" in result.output
+    assert "Entry Points" in result.output
+    assert "Core Dependencies" in result.output
     assert "Core Abstractions" in result.output
+    assert "app.py" in result.output
     assert "core.py" in result.output
     assert "Engine" in result.output
 
@@ -43,8 +52,9 @@ def test_cli_json_is_structured_and_honors_rank_method(tmp_path: Path) -> None:
     assert result.exit_code == 0
     report = json.loads(result.output)
     assert report["rank_method"] == "indegree"
-    assert report["reading_order"][0]["path"] == "core.py"
-    assert report["reading_order"][0]["classes"] == [
+    assert report["entry_points"][0]["path"] == "app.py"
+    assert report["core_dependencies"][0]["path"] == "core.py"
+    assert report["core_dependencies"][0]["classes"] == [
         {"name": "Engine", "methods": ["run"]}
     ]
 
@@ -69,10 +79,29 @@ def test_cli_uses_selected_llm_provider(tmp_path: Path) -> None:
         )
 
     assert result.exit_code == 0
-    assert json.loads(result.output)["reading_order"][0]["description"] == (
+    report = json.loads(result.output)
+    assert report["entry_points"][0]["description"] == (
         "Defines the core engine."
     )
+    assert report["core_dependencies"][0]["description"] == (
+        "Defines the core engine."
+    )
+    assert describe_file.call_count == 2
     assert describe_file.call_args.args[1] == "ollama"
+
+
+def test_cli_omits_reexport_shim_from_core_abstractions(tmp_path: Path) -> None:
+    _make_repo(tmp_path)
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text(
+        "from core import Engine\nfrom helper import configure\n", encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, [str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert result.output.count("pkg/__init__.py") == 1
 
 
 def test_cli_analyzes_git_url_at_ref(tmp_path: Path) -> None:

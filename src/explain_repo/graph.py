@@ -10,6 +10,10 @@ import networkx as nx
 from .parser import FileInfo, ImportInfo
 
 
+DEGREE_DOMINANCE_RATIO = 2.0
+MIN_SIGNAL_DEGREE = 2
+
+
 def _module_name(path: Path) -> str:
     pure_path = PurePosixPath(path.as_posix())
     if pure_path.name == "__init__.py":
@@ -88,6 +92,28 @@ def build_dependency_graph(files: dict[Path, FileInfo]) -> nx.DiGraph:
                 if dependency != path:
                     graph.add_edge(path, dependency)
     return graph
+
+
+def classify_node(graph: nx.DiGraph, node: Path) -> str:
+    """Classify a file by whether incoming or outgoing imports dominate.
+
+    Adding one to each degree avoids division by zero. A 2:1 threshold requires
+    one direction to be meaningfully stronger, and requiring at least two edges
+    prevents a one-import package shim from being treated as an entry point.
+    """
+    in_degree = graph.in_degree(node)
+    out_degree = graph.out_degree(node)
+    outgoing_ratio = (out_degree + 1) / (in_degree + 1)
+    incoming_ratio = (in_degree + 1) / (out_degree + 1)
+
+    if (
+        out_degree >= MIN_SIGNAL_DEGREE
+        and outgoing_ratio >= DEGREE_DOMINANCE_RATIO
+    ):
+        return "entry_point"
+    if in_degree >= MIN_SIGNAL_DEGREE and incoming_ratio >= DEGREE_DOMINANCE_RATIO:
+        return "core_dependency"
+    return "leaf"
 
 
 def _pagerank(graph: nx.DiGraph, damping: float = 0.85) -> dict[Path, float]:

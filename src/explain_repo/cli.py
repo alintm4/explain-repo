@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__
-from .graph import build_dependency_graph, rank_files
+from .graph import build_dependency_graph, classify_node, rank_files
 from .parser import FileInfo, parse_repository
 from .repository import repository_source
 
@@ -34,16 +34,23 @@ def _build_report(
 ) -> dict[str, Any]:
     files = parse_repository(root)
     graph = build_dependency_graph(files)
-    ranked = rank_files(graph, rank_method)[:top]
-    entries = []
-    for path, score in ranked:
+    categorized: dict[str, list[dict[str, Any]]] = {
+        "entry_point": [],
+        "core_dependency": [],
+    }
+    for path, score in rank_files(graph, rank_method):
+        classification = classify_node(graph, path)
+        if classification not in categorized:
+            continue
         info = files[path]
         imported_by = sorted(source.as_posix() for source in graph.predecessors(path))
         dependencies = sorted(target.as_posix() for target in graph.successors(path))
         entry: dict[str, Any] = {
             "path": path.as_posix(),
             "score": score,
-            "why_central": f"imported by {len(imported_by)} other file{'s' if len(imported_by) != 1 else ''}",
+            "classification": classification,
+            "in_degree": len(imported_by),
+            "out_degree": len(dependencies),
             "imported_by": imported_by,
             "dependencies": dependencies,
             "imports": _import_label(info),
@@ -53,11 +60,17 @@ def _build_report(
                 for name in info.classes
             ],
         }
-        if include_llm:
+        categorized[classification].append(entry)
+
+    entry_points = categorized["entry_point"][:top]
+    core_dependencies = categorized["core_dependency"][:top]
+    if include_llm:
+        for entry in [*entry_points, *core_dependencies]:
             from .llm import describe_file
 
-            entry["description"] = describe_file(info, llm_provider)
-        entries.append(entry)
+            entry["description"] = describe_file(
+                files[Path(entry["path"])], llm_provider
+            )
     return {
         "repository": repository_name or str(root),
         "rank_method": rank_method,
@@ -67,34 +80,50 @@ def _build_report(
             for path, info in files.items()
             if info.syntax_error
         ],
-        "reading_order": entries,
+        "entry_points": entry_points,
+        "core_dependencies": core_dependencies,
     }
 
 
-def _render_text(report: dict[str, Any], console: Console) -> None:
-    console.print("[bold]Suggested Reading Order[/bold]")
-    reading_table = Table(show_header=True, header_style="bold cyan")
-    reading_table.add_column("#", justify="right")
-    reading_table.add_column("File")
-    reading_table.add_column("Why central")
-    reading_table.add_column("Dependencies")
-    for index, entry in enumerate(report["reading_order"], start=1):
-        reading_table.add_row(
+def _render_ranked_table(
+    title: str, entries: list[dict[str, Any]], console: Console
+) -> None:
+    console.print(f"[bold]{title}[/bold]")
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("#", justify="right")
+    table.add_column("File")
+    table.add_column("Imported by", justify="right")
+    table.add_column("Imports", justify="right")
+    table.add_column("Dependencies")
+    for index, entry in enumerate(entries, start=1):
+        table.add_row(
             str(index),
             entry["path"],
-            entry["why_central"],
+            str(entry["in_degree"]),
+            str(entry["out_degree"]),
             ", ".join(entry["dependencies"]) or "None",
         )
         if entry.get("description"):
-            reading_table.add_row("", "[dim]Description[/dim]", entry["description"], "")
-    console.print(reading_table)
+            table.add_row("", "[dim]Description[/dim]", "", "", entry["description"])
+    console.print(table)
+
+
+def _render_text(report: dict[str, Any], console: Console) -> None:
+    _render_ranked_table("Entry Points", report["entry_points"], console)
+    console.print()
+    _render_ranked_table(
+        "Core Dependencies", report["core_dependencies"], console
+    )
 
     console.print("\n[bold]Core Abstractions[/bold]")
     abstraction_table = Table(show_header=True, header_style="bold cyan")
     abstraction_table.add_column("File")
     abstraction_table.add_column("Classes")
     abstraction_table.add_column("Functions")
-    for entry in report["reading_order"]:
+    entries = [*report["entry_points"], *report["core_dependencies"]]
+    for entry in entries:
+        if not entry["classes"] and not entry["functions"]:
+            continue
         classes = []
         for class_info in entry["classes"]:
             methods = ", ".join(class_info["methods"])
