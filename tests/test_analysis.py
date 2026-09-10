@@ -35,6 +35,7 @@ def test_source_categories_and_partial_language_coverage(tmp_path: Path) -> None
     assert coverage.analyzed_percentage == 60.0
     assert coverage.status == "partial"
     assert coverage.unsupported_extensions == (".go", ".rs")
+    assert coverage.parse_recoveries == 0
 
 
 def test_source_category_filename_and_directory_variants() -> None:
@@ -42,6 +43,9 @@ def test_source_category_filename_and_directory_variants() -> None:
     assert classify_source_path(Path("integration_tests/widget.py")) == "test"
     assert classify_source_path(Path("src/widget.spec.ts")) == "test"
     assert classify_source_path(Path("assets/bundle.min.js")) == "generated"
+    assert classify_source_path(Path("integration/http/main.ts")) == "test"
+    assert classify_source_path(Path("scripts/release.py")) == "development"
+    assert classify_source_path(Path("packages/create/template-react/src/main.tsx")) == "fixture"
 
 
 def test_declared_and_thin_python_entries_are_detected(tmp_path: Path) -> None:
@@ -106,6 +110,8 @@ def test_setup_cfg_console_script_is_resolved(tmp_path: Path) -> None:
         "[options.entry_points]\nconsole_scripts =\n    demo = pkg.cli:main\n",
     )
     _write(tmp_path, "pkg/cli.py", "def main(): pass\n")
+    _write(tmp_path, "pkg/__init__.py", "from .app import Framework\n")
+    _write(tmp_path, "pkg/app.py", "class Framework: pass\n")
 
     analysis = analyze_repository(tmp_path)
 
@@ -182,6 +188,45 @@ def test_package_main_is_a_library_reading_surface_not_execution(tmp_path: Path)
     assert analysis.repository_type == "library"
     assert analysis.entry_points == ()
     assert analysis.recommended_reading_order[0]["path"] == "src/index.js"
+
+
+def test_nested_package_initializer_is_not_a_reading_root(tmp_path: Path) -> None:
+    _write(tmp_path, "pkg/__init__.py", "from .app import App\n")
+    _write(tmp_path, "pkg/app.py", "from .internal import helper\nclass App: pass\n")
+    _write(tmp_path, "pkg/internal/__init__.py", "from .helper import helper\n")
+    _write(tmp_path, "pkg/internal/helper.py", "def helper(): pass\n")
+
+    analysis = analyze_repository(tmp_path)
+
+    assert analysis.recommended_reading_order[0]["path"] == "pkg/__init__.py"
+    assert analysis.recommended_reading_order[1]["path"] == "pkg/app.py"
+
+
+def test_repository_type_uses_metadata_description(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        '[project]\nname="web"\nversion="1"\ndescription="A web application framework"\n[project.scripts]\nweb="pkg.cli:main"\n',
+    )
+    _write(tmp_path, "pkg/cli.py", "def main(): pass\n")
+    _write(tmp_path, "pkg/__init__.py", "from .app import Framework\n")
+    _write(tmp_path, "pkg/app.py", "class Framework: pass\n")
+
+    analysis = analyze_repository(tmp_path)
+
+    assert analysis.repository_type == "framework"
+    assert analysis.entry_points[0]["path"] == "pkg/cli.py"
+    assert analysis.recommended_reading_order[0]["path"] == "pkg/__init__.py"
+
+
+def test_auxiliary_main_guard_does_not_turn_library_into_application(tmp_path: Path) -> None:
+    _write(tmp_path, "pyproject.toml", '[project]\nname="library"\nversion="1"\n')
+    _write(tmp_path, "pkg/diagnose.py", 'if __name__ == "__main__":\n    print("ok")\n')
+
+    analysis = analyze_repository(tmp_path)
+
+    assert analysis.repository_type == "library"
+    assert analysis.entry_points[0]["path"] == "pkg/diagnose.py"
 
 
 def test_unrelated_tests_do_not_change_production_architecture(tmp_path: Path) -> None:

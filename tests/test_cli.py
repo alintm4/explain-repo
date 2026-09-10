@@ -200,7 +200,10 @@ def test_cli_reports_coverage_and_package_groups(tmp_path: Path) -> None:
     package = tmp_path / "apps" / "cli"
     package.mkdir(parents=True)
     (package / "package.json").write_text('{"bin":"./main.ts"}', encoding="utf-8")
-    (package / "main.ts").write_text("export function main() {}\n", encoding="utf-8")
+    (package / "main.ts").write_text(
+        "import '../../packages/core/index';\nexport function main() {}\n",
+        encoding="utf-8",
+    )
     library = tmp_path / "packages" / "core"
     library.mkdir(parents=True)
     (library / "package.json").write_text('{"main":"./index.ts"}', encoding="utf-8")
@@ -217,6 +220,7 @@ def test_cli_reports_coverage_and_package_groups(tmp_path: Path) -> None:
         "apps/cli",
         "packages/core",
     ]
+    assert report["package_results"][0]["dependencies"] == ["packages/core"]
 
 
 def test_cli_requires_category_opt_in_for_tests(tmp_path: Path) -> None:

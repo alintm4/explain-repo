@@ -82,6 +82,32 @@ def _build_report(
                 for item in analysis.recommended_reading_order
                 if item.get("package") == package
             ][:top],
+            "dependencies": sorted(
+                {
+                    target_package
+                    for source, target in graph.edges
+                    if (source_package := next(
+                        (
+                            candidate
+                            for candidate in analysis.packages
+                            if Path(candidate) == source or Path(candidate) in source.parents
+                        ),
+                        None,
+                    ))
+                    == package
+                    and (
+                        target_package := next(
+                            (
+                                candidate
+                                for candidate in analysis.packages
+                                if Path(candidate) == target or Path(candidate) in target.parents
+                            ),
+                            None,
+                        )
+                    )
+                    not in {None, source_package}
+                }
+            ),
         }
         for package in analysis.packages
     ]
@@ -95,6 +121,7 @@ def _build_report(
             "unsupported_source_files": analysis.coverage.unsupported_source_files,
             "parsed_files": analysis.coverage.parsed_files,
             "parse_failures": analysis.coverage.parse_failures,
+            "parse_recoveries": analysis.coverage.parse_recoveries,
             "analyzed_percentage": analysis.coverage.analyzed_percentage,
             "status": analysis.coverage.status,
             "unsupported_extensions": analysis.coverage.unsupported_extensions,
@@ -221,7 +248,17 @@ def _render_text(report: dict[str, Any], console: Console) -> None:
     "--include-category",
     "include_categories",
     multiple=True,
-    type=click.Choice(["test", "example", "documentation", "fixture", "generated", "vendor"]),
+    type=click.Choice(
+        [
+            "test",
+            "example",
+            "documentation",
+            "fixture",
+            "generated",
+            "vendor",
+            "development",
+        ]
+    ),
     help="Include a non-production source category in architecture analysis.",
 )
 @click.option(

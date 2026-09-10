@@ -35,12 +35,26 @@ SOURCE_EXTENSIONS = SUPPORTED_EXTENSIONS | {
 }
 
 CATEGORY_PARTS = {
-    "test": {"test", "tests", "testing", "spec", "specs", "__tests__"},
-    "example": {"example", "examples", "sample", "samples", "playground"},
-    "documentation": {"doc", "docs", "documentation"},
-    "fixture": {"fixture", "fixtures", "testdata", "test_data"},
+    "test": {"test", "tests", "testing", "spec", "specs", "__tests__", "integration", "e2e", "e2e-regression", "perf-regression"},
+    "example": {"example", "examples", "sample", "samples", "playground", "bench", "benchmark", "benchmarks"},
+    "documentation": {"doc", "docs", "docs_src", "documentation", "website"},
+    "fixture": {"fixture", "fixtures", "__fixtures__", "testdata", "test_data"},
     "generated": {"generated", "gen", "build", "dist", "coverage"},
-    "vendor": {"vendor", "vendored", "third_party", "third-party", "deps"},
+    "vendor": {"vendor", "vendored", "_vendor", "third_party", "third-party", "deps"},
+    "development": {"dev", "devtools", "release", "releases", "script", "scripts", "tool", "tools"},
+}
+
+GENERIC_MODULE_NAMES = {
+    "compat",
+    "constants",
+    "errors",
+    "exceptions",
+    "symbols",
+    "types",
+    "utils",
+    "utilities",
+    "version",
+    "warnings",
 }
 
 
@@ -51,6 +65,7 @@ class CoverageSummary:
     unsupported_source_files: int
     parsed_files: int
     parse_failures: int
+    parse_recoveries: int
     analyzed_percentage: float
     status: str
     unsupported_extensions: tuple[str, ...]
@@ -85,6 +100,8 @@ def classify_source_path(path: Path) -> str:
         return "test"
     if filename.endswith((".min.js", ".min.css")) or filename.startswith("generated_"):
         return "generated"
+    if any(part.startswith(("template-", "fixture-")) for part in parts):
+        return "fixture"
     for category, names in CATEGORY_PARTS.items():
         if parts & names or any(
             category == "test" and (part.startswith("test") or part.endswith("tests"))
@@ -116,13 +133,19 @@ def summarize_coverage(root: Path, parsed_files: dict[Path, object]) -> Coverage
     """Summarize how much source-like content received supported parsing."""
     inventory = source_inventory(root)
     supported = [path for path in inventory if path.suffix.lower() in SUPPORTED_EXTENSIONS]
+    supported_set = set(supported)
     parse_failures = sum(
         bool(getattr(info, "syntax_error", None)) and not getattr(info, "syntax_recovered", False)
         for info in parsed_files.values()
     )
+    parse_recoveries = sum(
+        bool(getattr(info, "syntax_error", None)) and getattr(info, "syntax_recovered", False)
+        for info in parsed_files.values()
+    )
     parsed_count = sum(
         not getattr(info, "syntax_error", None) or getattr(info, "syntax_recovered", False)
-        for info in parsed_files.values()
+        for path, info in parsed_files.items()
+        if path in supported_set
     )
     analyzed_percentage = (
         round(100.0 * parsed_count / len(inventory), 1) if inventory else 100.0
@@ -140,6 +163,7 @@ def summarize_coverage(root: Path, parsed_files: dict[Path, object]) -> Coverage
         unsupported_source_files=len(inventory) - len(supported),
         parsed_files=parsed_count,
         parse_failures=parse_failures,
+        parse_recoveries=parse_recoveries,
         analyzed_percentage=analyzed_percentage,
         status=status,
         unsupported_extensions=tuple(
@@ -238,14 +262,22 @@ def _metadata_evidence(root: Path, files: dict[Path, FileInfo]) -> tuple[dict[Pa
                 resolved = _resolve_source_target(root, (relative_parent / target).as_posix(), files)
                 if resolved:
                     executable.setdefault(resolved, []).append(f"declared by package.json {field}")
-        for field in ("main", "exports"):
+        for field in ("main", "module", "exports"):
             for target in _flatten_metadata_targets(package.get(field)):
                 resolved = _resolve_source_target(root, (relative_parent / target).as_posix(), files)
                 if resolved:
                     public_api.add(resolved)
+        if not any(package.get(field) for field in ("main", "module", "exports")):
+            default_index = relative_parent / "index.js"
+            if default_index in files:
+                public_api.add(default_index)
 
+    python_initializers = {path for path in files if path.name == "__init__.py"}
     for path in files:
-        if path.name == "__init__.py":
+        if path.name == "__init__.py" and not any(
+            ancestor / "__init__.py" in python_initializers
+            for ancestor in path.parent.parents
+        ):
             public_api.add(path)
         if path.name == "__main__.py":
             executable.setdefault(path, []).append("Python __main__.py module")
@@ -314,13 +346,16 @@ def _is_main_guard(node: ast.stmt) -> bool:
 
 def _package_boundaries(root: Path, metadata: dict[str, Any]) -> tuple[str, ...]:
     boundaries: set[str] = set()
-    packages = metadata.get("packages", [])
-    for parent, _ in packages:
-        if parent != Path("."):
-            boundaries.add(parent.as_posix())
+    root_packages = [package for parent, package in metadata.get("packages", []) if parent == Path(".")]
+    workspace_declared = bool(root_packages and root_packages[0].get("workspaces")) or (
+        root / "pnpm-workspace.yaml"
+    ).is_file()
+    workspace_declared = workspace_declared or (
+        (root / "apps").is_dir() and (root / "packages").is_dir()
+    )
     for container in ("apps", "packages"):
         directory = root / container
-        if directory.is_dir():
+        if directory.is_dir() and workspace_declared:
             boundaries.update(
                 child.relative_to(root).as_posix() for child in directory.iterdir() if child.is_dir()
             )
@@ -340,16 +375,31 @@ def _repository_type(
     executable: dict[Path, list[str]],
     packages: tuple[str, ...],
 ) -> str:
-    if packages:
-        return "monorepo"
     pyproject = metadata.get("pyproject", {}).get("project", {})
     package_values = [package for _, package in metadata.get("packages", [])]
-    if executable:
-        if pyproject.get("scripts") or any(package.get("bin") for package in package_values):
-            return "cli"
-        return "application"
+    descriptive_values = [
+        pyproject.get("description", ""),
+        *pyproject.get("keywords", []),
+    ]
+    for package in package_values:
+        descriptive_values.extend(
+            [package.get("description", ""), *_flatten_metadata_targets(package.get("keywords"))]
+        )
+    description = " ".join(str(value).lower() for value in descriptive_values)
+    if "framework" in description:
+        return "framework"
+    if "sdk" in description or "software development kit" in description:
+        return "sdk"
+    if any(term in description for term in ("build tool", "bundler", "package manager")):
+        return "build tool"
+    if packages:
+        return "monorepo"
+    if pyproject.get("scripts") or any(package.get("bin") for package in package_values):
+        return "cli"
     if pyproject or package_values:
         return "library"
+    if executable:
+        return "application"
     if (root / "apps").is_dir() or (root / "packages").is_dir():
         return "monorepo"
     return "unknown"
@@ -399,35 +449,58 @@ def _architectural_core(
     graph: nx.DiGraph,
     files: dict[Path, FileInfo],
     analyzed_categories: set[str],
+    public_api: set[Path],
 ) -> tuple[dict[str, Any], ...]:
     if not graph:
         return ()
     pagerank = dict(rank_files(graph, "pagerank"))
     maximum_rank = max(pagerank.values(), default=1.0)
     maximum_in = max((graph.in_degree(path) for path in graph), default=1) or 1
+    maximum_out = max((graph.out_degree(path) for path in graph), default=1) or 1
     maximum_reach = max((len(nx.ancestors(graph, path)) for path in graph), default=1) or 1
     entries = []
     for path, info in files.items():
         if path not in graph or classify_source_path(path) not in analyzed_categories:
             continue
         incoming = graph.in_degree(path)
-        if incoming == 0:
+        outgoing = graph.out_degree(path)
+        if path.name == "__init__.py":
+            continue
+        if incoming == 0 and outgoing < 2 and path not in public_api:
             continue
         reach = len(nx.ancestors(graph, path))
         definition_signal = 1.0 if info.classes or info.functions else 0.0
         score = (
-            0.45 * pagerank[path] / maximum_rank
-            + 0.3 * incoming / maximum_in
+            0.25 * pagerank[path] / maximum_rank
+            + 0.2 * incoming / maximum_in
             + 0.15 * reach / maximum_reach
+            + 0.2 * outgoing / maximum_out
             + 0.1 * definition_signal
+            + 0.1 * (path in public_api)
         )
-        evidence = [f"imported by {incoming} production module{'s' if incoming != 1 else ''}"]
+        generic_name = path.stem.lower() in GENERIC_MODULE_NAMES or any(
+            part.lower() in {"compat", "_compat", "typing", "types", "utils", "utilities"}
+            for part in path.parts[:-1]
+        )
+        if generic_name:
+            score *= 0.55
+        evidence = []
+        if incoming:
+            evidence.append(
+                f"imported by {incoming} production module{'s' if incoming != 1 else ''}"
+            )
         if pagerank[path] >= maximum_rank * 0.75:
             evidence.append("high dependency centrality")
         if reach > incoming:
             evidence.append(f"reachable from {reach} upstream production modules")
+        if outgoing >= 2:
+            evidence.append(f"coordinates {outgoing} production dependencies")
+        if path in public_api:
+            evidence.append("declared public package surface")
         if info.classes or info.functions:
             evidence.append("defines named abstractions")
+        if generic_name:
+            evidence.append("generic utility role reduces architectural priority")
         entries.append(
             {"path": path.as_posix(), "score": round(min(score, 1.0), 3), "evidence": evidence}
         )
@@ -440,11 +513,19 @@ def _reading_order(
     core: tuple[dict[str, Any], ...],
     public_api: set[Path],
     analyzed_categories: set[str],
+    repository_type: str,
 ) -> tuple[dict[str, Any], ...]:
     core_scores = {Path(item["path"]): item["score"] for item in core}
-    starts = [Path(item["path"]) for item in entries]
+    starts = (
+        [Path(item["path"]) for item in entries]
+        if repository_type in {"application", "cli"}
+        else []
+    )
     if not starts:
-        starts = sorted(public_api, key=Path.as_posix)
+        starts = sorted(
+            public_api,
+            key=lambda path: (-core_scores.get(path, 0.0), path.as_posix()),
+        )
     if not starts:
         starts = [Path(item["path"]) for item in core[:3]]
     queue = deque((path, 0) for path in starts if path in graph)
@@ -499,9 +580,22 @@ def analyze_repository(
     graph = build_dependency_graph(production_files)
     declared, public_api, metadata = _metadata_evidence(root, production_files)
     packages = _package_boundaries(root, metadata)
-    entries = _entry_points(graph, production_files, declared, analyzed_categories)
-    core = _architectural_core(graph, production_files, analyzed_categories)
-    reading = _reading_order(graph, entries, core, public_api, analyzed_categories)
+    repository_type = _repository_type(root, metadata, declared, packages)
+    if coverage.status in {"partial", "unsupported"} and coverage.analyzed_percentage < 50.0:
+        entries = ()
+        core = ()
+        reading = ()
+    else:
+        entries = _entry_points(graph, production_files, declared, analyzed_categories)
+        core = _architectural_core(graph, production_files, analyzed_categories, public_api)
+        reading = _reading_order(
+            graph,
+            entries,
+            core,
+            public_api,
+            analyzed_categories,
+            repository_type,
+        )
     entries = tuple({**item, "package": _package_for(Path(item["path"]), packages)} for item in entries)
     core = tuple({**item, "package": _package_for(Path(item["path"]), packages)} for item in core)
     reading = tuple({**item, "package": _package_for(Path(item["path"]), packages)} for item in reading)
@@ -512,10 +606,14 @@ def analyze_repository(
         )
     if coverage.parse_failures:
         warnings.append(f"{coverage.parse_failures} supported source file(s) failed parsing")
+    if coverage.parse_recoveries:
+        warnings.append(
+            f"{coverage.parse_recoveries} JavaScript/TypeScript file(s) parsed with syntax recovery"
+        )
     if packages:
         warnings.append("Monorepo packages are ranked within a production-only repository graph")
     return ArchitectureAnalysis(
-        repository_type=_repository_type(root, metadata, declared, packages),
+        repository_type=repository_type,
         languages=tuple(sorted({_language(path) for path in source_inventory(root)})),
         coverage=coverage,
         source_categories=dict(sorted(categories.items())),
