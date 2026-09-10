@@ -1,0 +1,18 @@
+{
+  "release": "0.4.0",
+  "provenance": "Separate isolated evaluation supplied by the project owner",
+  "repository_count": 30,
+  "entry_top_1_accuracy": 0.52,
+  "entry_precision": 0.15,
+  "entry_recall": 0.35,
+  "entry_f1": 0.21,
+  "entry_contamination_rate": 0.87,
+  "supported_core_repositories": 23,
+  "core_surfaced_repositories": 22,
+  "core_contamination_rate": 0.43,
+  "notes": [
+    "Metadata-declared and thin entry points were frequently missed.",
+    "Monorepos were pooled into one graph.",
+    "Unsupported languages were silently analyzed as empty or partial repositories."
+  ]
+}
