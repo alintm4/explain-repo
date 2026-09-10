@@ -44,7 +44,7 @@ def test_cli_reports_package_version() -> None:
     result = CliRunner().invoke(main, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output == "explain-repo, version 0.4.0\n"
+    assert result.output == "explain-repo, version 0.5.0\n"
 
 
 def test_cli_renders_expected_sections(tmp_path: Path) -> None:

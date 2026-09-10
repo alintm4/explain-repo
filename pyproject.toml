@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "explain-repo"
-version = "0.4.0"
-description = "Static-analysis guided onboarding reports for Python, JavaScript, and TypeScript repositories"
+version = "0.5.0"
+description = "Evidence-backed architecture discovery for Python, JavaScript, and TypeScript repositories"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
