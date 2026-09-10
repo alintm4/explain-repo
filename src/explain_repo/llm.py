@@ -24,8 +24,19 @@ def _prompt(info: FileInfo) -> str:
         "classes": info.classes,
         "class_methods": info.class_methods,
     }
+    language = {
+        ".py": "Python",
+        ".js": "JavaScript",
+        ".cjs": "JavaScript/CommonJS",
+        ".jsx": "JavaScript/JSX",
+        ".mjs": "JavaScript/ESM",
+        ".ts": "TypeScript",
+        ".cts": "TypeScript/CommonJS",
+        ".mts": "TypeScript/ESM",
+        ".tsx": "TypeScript/TSX",
+    }.get(info.path.suffix.lower(), "source")
     return (
-        "Describe this Python file's likely responsibility in one plain-English "
+        f"Describe this {language} file's likely responsibility in one plain-English "
         "sentence. Use only the extracted structure below and do not speculate "
         f"beyond it.\n{structure!r}"
     )

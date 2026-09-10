@@ -194,3 +194,43 @@ def test_cli_rejects_non_directory(tmp_path: Path) -> None:
 
     assert result.exit_code != 0
     assert "not a directory" in result.output
+
+
+def test_cli_reports_coverage_and_package_groups(tmp_path: Path) -> None:
+    package = tmp_path / "apps" / "cli"
+    package.mkdir(parents=True)
+    (package / "package.json").write_text('{"bin":"./main.ts"}', encoding="utf-8")
+    (package / "main.ts").write_text("export function main() {}\n", encoding="utf-8")
+    library = tmp_path / "packages" / "core"
+    library.mkdir(parents=True)
+    (library / "package.json").write_text('{"main":"./index.ts"}', encoding="utf-8")
+    (library / "index.ts").write_text("export function core() {}\n", encoding="utf-8")
+    (tmp_path / "main.go").write_text("package main\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, [str(tmp_path), "--json"])
+
+    assert result.exit_code == 0
+    report = json.loads(result.output)
+    assert report["repository_type"] == "monorepo"
+    assert report["coverage"]["unsupported_source_files"] == 1
+    assert [item["path"] for item in report["package_results"]] == [
+        "apps/cli",
+        "packages/core",
+    ]
+
+
+def test_cli_requires_category_opt_in_for_tests(tmp_path: Path) -> None:
+    (tmp_path / "core.py").write_text("def run(): pass\n", encoding="utf-8")
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "main.py").write_text("from core import run\n", encoding="utf-8")
+
+    default = json.loads(CliRunner().invoke(main, [str(tmp_path), "--json"]).output)
+    included = json.loads(
+        CliRunner().invoke(
+            main, [str(tmp_path), "--json", "--include-category", "test"]
+        ).output
+    )
+
+    assert default["entry_points"] == []
+    assert included["entry_points"][0]["path"] == "tests/main.py"

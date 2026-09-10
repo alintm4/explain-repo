@@ -11,8 +11,9 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__
-from .graph import build_dependency_graph, classify_node, rank_files
-from .parser import FileInfo, parse_repository
+from .analysis import analyze_repository
+from .graph import rank_files
+from .parser import FileInfo
 from .repository import repository_source
 
 
@@ -31,23 +32,21 @@ def _build_report(
     include_llm: bool,
     llm_provider: str = "ollama",
     repository_name: str | None = None,
+    include_categories: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    files = parse_repository(root)
-    graph = build_dependency_graph(files)
-    categorized: dict[str, list[dict[str, Any]]] = {
-        "entry_point": [],
-        "core_dependency": [],
-    }
-    for path, score in rank_files(graph, rank_method):
-        classification = classify_node(graph, path)
-        if classification not in categorized:
-            continue
+    analysis = analyze_repository(root, include_categories)
+    files = analysis.files
+    graph = analysis.graph
+    dependency_scores = dict(rank_files(graph, rank_method))
+
+    def enrich(entry: dict[str, Any], classification: str) -> dict[str, Any]:
+        path = Path(entry["path"])
         info = files[path]
         imported_by = sorted(source.as_posix() for source in graph.predecessors(path))
         dependencies = sorted(target.as_posix() for target in graph.successors(path))
-        entry: dict[str, Any] = {
-            "path": path.as_posix(),
-            "score": score,
+        return {
+            **entry,
+            "score": entry.get("score", dependency_scores.get(path, 0.0)),
             "classification": classification,
             "in_degree": len(imported_by),
             "out_degree": len(dependencies),
@@ -60,10 +59,12 @@ def _build_report(
                 for name in info.classes
             ],
         }
-        categorized[classification].append(entry)
 
-    entry_points = categorized["entry_point"][:top]
-    core_dependencies = categorized["core_dependency"][:top]
+    entry_points = [enrich(dict(entry), "entry_point") for entry in analysis.entry_points[:top]]
+    core_dependencies = [
+        enrich(dict(entry), "core_dependency")
+        for entry in analysis.architectural_core[:top]
+    ]
     if include_llm:
         for entry in [*entry_points, *core_dependencies]:
             from .llm import describe_file
@@ -71,9 +72,39 @@ def _build_report(
             entry["description"] = describe_file(
                 files[Path(entry["path"])], llm_provider
             )
+    package_results = [
+        {
+            "path": package,
+            "entry_points": [entry for entry in entry_points if entry.get("package") == package],
+            "architectural_core": [entry for entry in core_dependencies if entry.get("package") == package],
+            "recommended_reading_order": [
+                item
+                for item in analysis.recommended_reading_order
+                if item.get("package") == package
+            ][:top],
+        }
+        for package in analysis.packages
+    ]
     return {
         "repository": repository_name or str(root),
+        "repository_type": analysis.repository_type,
+        "languages": analysis.languages,
+        "coverage": {
+            "total_source_files": analysis.coverage.total_source_files,
+            "supported_source_files": analysis.coverage.supported_source_files,
+            "unsupported_source_files": analysis.coverage.unsupported_source_files,
+            "parsed_files": analysis.coverage.parsed_files,
+            "parse_failures": analysis.coverage.parse_failures,
+            "analyzed_percentage": analysis.coverage.analyzed_percentage,
+            "status": analysis.coverage.status,
+            "unsupported_extensions": analysis.coverage.unsupported_extensions,
+        },
+        "source_categories": analysis.source_categories,
+        "packages": analysis.packages,
+        "package_results": package_results,
+        "included_source_categories": ("production", *include_categories),
         "rank_method": rank_method,
+        # Retained for 0.4.x JSON consumers; this counts all supported files.
         "python_file_count": len(files),
         "syntax_errors": [
             {
@@ -86,6 +117,9 @@ def _build_report(
         ],
         "entry_points": entry_points,
         "core_dependencies": core_dependencies,
+        "architectural_core": core_dependencies,
+        "recommended_reading_order": list(analysis.recommended_reading_order[:top]),
+        "analysis_warnings": analysis.warnings,
     }
 
 
@@ -113,11 +147,41 @@ def _render_ranked_table(
 
 
 def _render_text(report: dict[str, Any], console: Console) -> None:
-    _render_ranked_table("Entry Points", report["entry_points"], console)
+    console.print(f"[bold]Repository[/bold] {report['repository']}")
+    console.print(
+        f"[bold]Languages[/bold] {', '.join(report['languages']) or 'None'}  "
+        f"[bold]Type[/bold] {report['repository_type']}  "
+        f"[bold]Coverage[/bold] {report['coverage']['analyzed_percentage']:.1f}%"
+    )
+    for warning in report["analysis_warnings"]:
+        console.print(f"[yellow]Warning:[/yellow] {warning}")
+    console.print()
+
+    console.print("[bold]Execution Entry Points[/bold]")
+    entry_table = Table(show_header=True, header_style="bold cyan")
+    entry_table.add_column("File")
+    entry_table.add_column("Confidence", justify="right")
+    entry_table.add_column("Evidence")
+    for entry in report["entry_points"]:
+        entry_table.add_row(
+            entry["path"],
+            f"{entry['confidence']:.2f}",
+            "; ".join(entry["evidence"]),
+        )
+    console.print(entry_table)
     console.print()
     _render_ranked_table(
-        "Core Dependencies", report["core_dependencies"], console
+        "Architectural Core (Core Dependencies)", report["architectural_core"], console
     )
+
+    console.print("\n[bold]Recommended Reading Order[/bold]")
+    reading_table = Table(show_header=True, header_style="bold cyan")
+    reading_table.add_column("#", justify="right")
+    reading_table.add_column("File")
+    reading_table.add_column("Reason")
+    for index, item in enumerate(report["recommended_reading_order"], start=1):
+        reading_table.add_row(str(index), item["path"], item["reason"])
+    console.print(reading_table)
 
     console.print("\n[bold]Core Abstractions[/bold]")
     abstraction_table = Table(show_header=True, header_style="bold cyan")
@@ -154,6 +218,13 @@ def _render_text(report: dict[str, Any], console: Console) -> None:
 )
 @click.option("--llm", is_flag=True, help="Add LLM descriptions from extracted structure.")
 @click.option(
+    "--include-category",
+    "include_categories",
+    multiple=True,
+    type=click.Choice(["test", "example", "documentation", "fixture", "generated", "vendor"]),
+    help="Include a non-production source category in architecture analysis.",
+)
+@click.option(
     "--llm-provider",
     type=click.Choice(["ollama", "anthropic"]),
     default="ollama",
@@ -167,6 +238,7 @@ def main(
     ref: str | None,
     rank_method: str,
     llm: bool,
+    include_categories: tuple[str, ...],
     llm_provider: str,
 ) -> None:
     """Analyze a local directory or Git repository URL in SOURCE."""
@@ -179,6 +251,7 @@ def main(
                 llm,
                 llm_provider,
                 repository_name=source,
+                include_categories=include_categories,
             )
     except RuntimeError as error:
         raise click.ClickException(str(error)) from error

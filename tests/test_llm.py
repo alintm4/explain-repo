@@ -43,3 +43,14 @@ def test_ollama_receives_only_extracted_structure() -> None:
 def test_unknown_llm_provider_is_rejected() -> None:
     with pytest.raises(ValueError, match="Unsupported LLM provider"):
         describe_file(FileInfo(path=Path("app.py")), "unknown")
+
+
+def test_prompt_uses_the_file_language() -> None:
+    response = _Response(json.dumps({"response": "Starts the service."}).encode())
+
+    with patch("explain_repo.llm.urlopen", return_value=response) as mocked_urlopen:
+        describe_file(FileInfo(path=Path("src/server.ts")), "ollama")
+
+    payload = json.loads(mocked_urlopen.call_args.args[0].data)
+    assert "TypeScript file" in payload["prompt"]
+    assert "Python file" not in payload["prompt"]
