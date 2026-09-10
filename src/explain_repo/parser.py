@@ -53,7 +53,7 @@ IGNORED_DIRECTORIES = {
 }
 
 PYTHON_EXTENSIONS = {".py"}
-JAVASCRIPT_EXTENSIONS = {".js", ".jsx", ".ts", ".tsx"}
+JAVASCRIPT_EXTENSIONS = {".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"}
 SUPPORTED_EXTENSIONS = PYTHON_EXTENSIONS | JAVASCRIPT_EXTENSIONS
 
 JAVASCRIPT_QUERY = """
@@ -169,7 +169,7 @@ def _parse_python_file(path: Path) -> FileInfo:
 
 
 def _javascript_language(extension: str) -> Language:
-    if extension == ".ts":
+    if extension in {".cts", ".mts", ".ts"}:
         return Language(tree_sitter_typescript.language_typescript())
     if extension == ".tsx":
         return Language(tree_sitter_typescript.language_tsx())
@@ -188,9 +188,9 @@ def _string_value(node: Node, source: bytes) -> str:
 
 
 def _extension_order(importer: Path) -> tuple[str, ...]:
-    if importer.suffix in {".ts", ".tsx"}:
-        return ".ts", ".tsx", ".js", ".jsx"
-    return ".js", ".jsx", ".ts", ".tsx"
+    if importer.suffix in {".cts", ".mts", ".ts", ".tsx"}:
+        return ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"
+    return ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"
 
 
 def _resolve_javascript_import(
@@ -255,7 +255,7 @@ def _parse_javascript_file(path: Path, root: Path) -> FileInfo:
 
     query_source = (
         TYPESCRIPT_QUERY
-        if path.suffix.lower() in {".ts", ".tsx"}
+        if path.suffix.lower() in {".cts", ".mts", ".ts", ".tsx"}
         else JAVASCRIPT_QUERY
     )
     query = Query(language, query_source)

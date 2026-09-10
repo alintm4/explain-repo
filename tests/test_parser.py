@@ -76,7 +76,9 @@ export class App {
     assert info.class_methods == {"App": ["start"]}
 
 
-@pytest.mark.parametrize("extension", [".js", ".jsx", ".ts", ".tsx"])
+@pytest.mark.parametrize(
+    "extension", [".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"]
+)
 def test_parse_file_dispatches_javascript_typescript_extensions(
     tmp_path: Path, extension: str
 ) -> None:
@@ -91,3 +93,13 @@ def test_parse_file_dispatches_javascript_typescript_extensions(
     assert info.syntax_error is None
     assert info.functions == ["render"]
     assert info.classes == ["Component"]
+
+
+def test_javascript_module_extensions_resolve(tmp_path: Path) -> None:
+    (tmp_path / "cli.cjs").write_text("const core = require('./core.mjs');\n", encoding="utf-8")
+    (tmp_path / "core.mjs").write_text("export function run() {}\n", encoding="utf-8")
+
+    files = parse_repository(tmp_path)
+
+    assert set(files) == {Path("cli.cjs"), Path("core.mjs")}
+    assert files[Path("cli.cjs")].imports[0].module == "core"
